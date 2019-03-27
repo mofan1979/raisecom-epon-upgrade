@@ -19,18 +19,18 @@ from multiprocessing import Pool, freeze_support
 from time import sleep
 
 
-def onu_upgrade(ip, rule):
-    # 定义执行升级函数，需要传入参数为设备ip，规则列表矩阵
+def onu_upgrade(ip, telnetuser,telnetpw,rule):
+    # 定义执行升级函数，需要传入参数为设备ip，telnet帐号密码，规则列表矩阵
     # 尝试发起telnet连接
     t01 = datetime.now()
     try:
         tn = telnetlib.Telnet(ip.encode(), port=23, timeout=3)
         # 登陆交互
-        tn.write('\n'.encode())
+        tn.write(b'\n')
         tn.read_until(b'Login:')
-        tn.write('raisecom\n'.encode())
+        tn.write(telnetuser.encode()+b'\n')
         tn.read_until(b'Password:')
-        tn.write('raisecom\n'.encode())
+        tn.write(telnetpw.encode()+b'\n')
         tn.read_until(b'>')
         tn.write('enable\n'.encode())
         tn.read_until(b'Password:')
@@ -38,7 +38,7 @@ def onu_upgrade(ip, rule):
         tn.read_until(b'#')
 
         # 读取ONU版本
-        tn.write('show version onu\n'.encode())
+        tn.write('show version onu slot 1-13\n'.encode())
         # 解码成Unicode格式以供比对
         devinfo = tn.read_until(b'#').decode()
         # print(devinfo)
@@ -237,7 +237,7 @@ def onu_upgrade(ip, rule):
             print('%s，失败，不支持的设备类型' % ip)
             return '%s,失败,不支持的设备类型\n' % ip
         except:
-            print('[', t91, ']', ip, '比对型号版本过程异常，telnet连接中断，共耗时 ', t91 - t90)
+            print('[', t91, ']', ip, '比对型号版本过程异常，telnet连接中断，共耗时 ', t91 - t01)
             return '%s,失败,telnet连接中断\n' % ip
     # telnet异常错误处理
     except:
