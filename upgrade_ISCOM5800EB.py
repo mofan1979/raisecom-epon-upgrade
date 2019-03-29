@@ -18,6 +18,50 @@ from datetime import datetime
 from multiprocessing import Pool, freeze_support
 from time import sleep
 
+class olt():
+    def __init__(self, ip, telnetuser, telnetpw):
+        self.ip = ip
+        self.telnetuser = telnetuser
+        self.telnetpw = telnetpw
+
+    def connect_olt(self):
+        try:
+            self.tn = telnetlib.Telnet(self.ip.encode(), port=23, timeout=3)
+            # 登陆交互
+            self.tn.write(b'\n')
+            self.tn.read_until(b'Login:')
+            self.tn.write(self.telnetuser.encode() + b'\n')
+            self.tn.read_until(b'Password:')
+            self.tn.write(self.telnetpw.encode() + b'\n')
+            self.tn.read_until(b'>')
+            self.tn.write('enable\n'.encode())
+            self.tn.read_until(b'Password:')
+            self.tn.write('raisecom\n'.encode())
+            self.tn.read_until(b'#')
+        except:
+            print('error')
+
+    def disconnect(self):
+        try:
+            self.tn.close()
+        except:
+            print('error')
+
+    def check_olt_type(self):
+        # 登陆olt，检查型号
+        t01 = datetime.now()
+        try:
+            # 读取OLT版本
+            self.tn.write('show version\n'.encode())
+            oltinfo = self.tn.read_until(b"#").decode()
+            print(oltinfo)
+            self.tn.close()
+        except:
+            print('error')
+
+    def ISCOM58EB(self):
+        # 58EB单进程升级
+        pass
 
 def onu_upgrade(ip, telnetuser,telnetpw,rule):
     # 定义执行升级函数，需要传入参数为设备ip，telnet帐号密码，规则列表矩阵
@@ -36,7 +80,10 @@ def onu_upgrade(ip, telnetuser,telnetpw,rule):
         tn.read_until(b'Password:')
         tn.write('raisecom\n'.encode())
         tn.read_until(b'#')
-
+        # 读取OLT版本
+        tn.write('show version\n'.encode())
+        oltinfo= tn.read_until(b"#").decode()
+        oltdict={'Product Name: ISCOM5800E-SMCB':ISCOM58EB}
         # 读取ONU版本
         tn.write('show version onu slot 1-13\n'.encode())
         # 解码成Unicode格式以供比对
