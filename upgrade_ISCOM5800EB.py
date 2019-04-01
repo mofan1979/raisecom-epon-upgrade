@@ -13,18 +13,26 @@
 
 import argparse  # 接收命令行参数的库
 import os
+import re
+import logging
 import telnetlib  # 调用telnet方法需要的库
 from datetime import datetime
 from multiprocessing import Pool, freeze_support
 from time import sleep
 
+
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
+logging.basicConfig(level=logging.INFO,format=LOG_FORMAT,datefmt=DATE_FORMAT)
+
 class olt():
-    def __init__(self, ip, telnetuser, telnetpw):
+    def __init__(self, ip, telnetuser, telnetpw,rule):
         self.ip = ip
         self.telnetuser = telnetuser
         self.telnetpw = telnetpw
+        self.rule = rule
 
-    def connect_olt(self):
+    def login(self):
         try:
             self.tn = telnetlib.Telnet(self.ip.encode(), port=23, timeout=3)
             # 登陆交互
@@ -39,29 +47,83 @@ class olt():
             self.tn.write('raisecom\n'.encode())
             self.tn.read_until(b'#')
         except:
-            print('error')
+            logging.warning('login error')
 
-    def disconnect(self):
+    def logout(self):
         try:
             self.tn.close()
+            logging.info('logout from %s successfully',self.ip)
         except:
-            print('error')
+            logging.warning('logout from %s error',self.ip)
 
-    def check_olt_type(self):
-        # 登陆olt，检查型号
+    # 检查OLT型号
+    def check_type(self):
         t01 = datetime.now()
         try:
             # 读取OLT版本
             self.tn.write('show version\n'.encode())
             oltinfo = self.tn.read_until(b"#").decode()
-            print(oltinfo)
-            self.tn.close()
+            if 'Product Name: ISCOM5800E-SMCB' in oltinfo:
+                self.type = 'ISCOM58EB'
+            else:
+                self.type = 'other'
+            print(self.ip, 'OLT type is', self.type)
         except:
-            print('error')
+            logging.warning('check OLT type error')
+            self.type = 'error'
 
-    def ISCOM58EB(self):
-        # 58EB单进程升级
-        pass
+    # 单进程onu升级，自动判断olt类型
+    def upgrade_onu(self):
+        if self.type == 'ISCOM58EB':
+            self.ISCOM58EB_upgrade_onu()
+        else:
+            logging.warning('不支持的OLT类型，升级停止')
+
+    # 58EB单进程升级
+    def ISCOM58EB_upgrade_onu(self):
+        logging.info('%s ISCOM58EB升级开始',self.ip)
+        # 遍历规则列表
+        for r in self.rule:
+            # 将r[1]单元格所列版本号按分隔符/切片
+            oldver = r[1].split('/')
+            logging.debug(oldver)
+            # 遍历槽位
+            slots = list(range(1,14))
+            del slots[6:8] #去掉主控板槽位
+            for slot in slots:
+                # 遍历PON口
+                for port in range(1,5):
+                    interface=str(slot)+'/'+str(port)
+                    print(interface)
+                    onulist = []
+                    self.tn.write(('show version onu olt {} \n'.format(interface)).encode())
+                    # 读取ONU版本信息
+                    onu_info=self.tn.read_until(b'#').decode()
+                    logging.debug(onu_info)
+                    # 正则表达式提取ONU ID
+                    id=re.findall('ONU ID: (\S*)',onu_info)
+                    # 版本列表
+                    soft=re.findall('Software Version: (\S*)',onu_info)
+                    # 组合成1个tuple list
+                    id_soft=zip(id,soft)
+                    # 遍历ONU版本信息表
+                    for i,s in id_soft:
+                        # 遍历规则待升级版本
+                        for ov in oldver:
+                            # 记录待升级的ONU
+                            if ov in s:
+                                print('待升级的ONU',i,':',s)
+                                llid=i[len(interface)+1:]
+                                # 将x/x/x的全局ID截取成单PON口下的短ID
+                                onulist.append(llid)
+                    # 组合成待升级的ONU字串
+                    onu=interface+'/'+','.join(onulist)
+                    # 待升级列表非空
+                    if onulist:
+                        print('download slave-system-boot ftp ',r[3],r[4],r[5],r[6],'onu',onu,'commit\n')
+                    else:
+                        print('ONU无需升级')
+        logging.info('%s ISCOM58EB升级完成',self.ip)
 
 def onu_upgrade(ip, telnetuser,telnetpw,rule):
     # 定义执行升级函数，需要传入参数为设备ip，telnet帐号密码，规则列表矩阵
@@ -83,7 +145,7 @@ def onu_upgrade(ip, telnetuser,telnetpw,rule):
         # 读取OLT版本
         tn.write('show version\n'.encode())
         oltinfo= tn.read_until(b"#").decode()
-        oltdict={'Product Name: ISCOM5800E-SMCB':ISCOM58EB}
+        oltdict={'Product Name: ISCOM5800E-SMCB':"ISCOM58EB"}
         # 读取ONU版本
         tn.write('show version onu slot 1-13\n'.encode())
         # 解码成Unicode格式以供比对
