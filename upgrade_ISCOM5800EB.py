@@ -37,17 +37,21 @@ class olt():
             self.tn = telnetlib.Telnet(self.ip.encode(), port=23, timeout=3)
             # 登陆交互
             self.tn.write(b'\n')
-            self.tn.read_until(b'Login:')
+            self.tn.read_until(b'Login:',timeout=2)
             self.tn.write(self.telnetuser.encode() + b'\n')
-            self.tn.read_until(b'Password:')
+            self.tn.read_until(b'Password:',timeout=2)
             self.tn.write(self.telnetpw.encode() + b'\n')
-            self.tn.read_until(b'>')
+            self.tn.read_until(b'>',timeout=2)
             self.tn.write('enable\n'.encode())
-            self.tn.read_until(b'Password:')
+            self.tn.read_until(b'Password:',timeout=2)
             self.tn.write('raisecom\n'.encode())
-            self.tn.read_until(b'#')
+            if '#' in self.tn.read_until(b'#',timeout=2).decode():
+                self.login_flag = True
+            else:
+                self.login_flag = False
         except:
             logging.warning('login error')
+            self.login_flag = False
 
     def logout(self):
         try:
@@ -58,18 +62,28 @@ class olt():
 
     # 检查OLT型号
     def check_type(self):
-        t01 = datetime.now()
-        try:
-            # 读取OLT版本
-            self.tn.write('show version\n'.encode())
-            oltinfo = self.tn.read_until(b"#").decode()
-            if 'Product Name: ISCOM5800E-SMCB' in oltinfo:
-                self.type = 'ISCOM58EB'
-            else:
-                self.type = 'other'
-            print(self.ip, 'OLT type is', self.type)
-        except:
-            logging.warning('check OLT type error')
+        if self.login_flag:
+            try:
+                #关闭日志打印以防干扰
+                self.tn.write('config\n'.encode())
+                self.tn.read_until(b"#", timeout=2)
+                self.tn.write('logging monitor disable\n'.encode())
+                self.tn.read_until(b"#", timeout=2)
+                self.tn.write('end\n'.encode())
+                self.tn.read_until(b"#", timeout=2)
+                # 读取OLT版本
+                self.tn.write('show version\n'.encode())
+                oltinfo = self.tn.read_until(b"#",timeout=2).decode()
+                if 'ISCOM5800E-SMCB' in oltinfo:
+                    self.type = 'ISCOM58EB'
+                else:
+                    self.type = 'other'
+                logging.debug('%s OLT type is %s',self.ip, self.type)
+            except:
+                logging.warning('check OLT type error')
+                self.type = 'error'
+        else:
+            logging.warning('did not login,check OLT type error')
             self.type = 'error'
 
     # 单进程onu升级，自动判断olt类型
@@ -82,277 +96,70 @@ class olt():
     # 58EB单进程升级
     def ISCOM58EB_upgrade_onu(self):
         logging.info('%s ISCOM58EB升级开始',self.ip)
-        # 遍历规则列表
-        for r in self.rule:
-            # 将r[1]单元格所列版本号按分隔符/切片
-            oldver = r[1].split('/')
-            logging.debug(oldver)
-            # 遍历槽位
-            slots = list(range(1,14))
-            del slots[6:8] #去掉主控板槽位
-            for slot in slots:
-                # 遍历PON口
-                for port in range(1,5):
-                    interface=str(slot)+'/'+str(port)
-                    print(interface)
-                    onulist = []
-                    self.tn.write(('show version onu olt {} \n'.format(interface)).encode())
-                    # 读取ONU版本信息
-                    onu_info=self.tn.read_until(b'#').decode()
-                    logging.debug(onu_info)
-                    # 正则表达式提取ONU ID
-                    id=re.findall('ONU ID: (\S*)',onu_info)
-                    # 版本列表
-                    soft=re.findall('Software Version: (\S*)',onu_info)
-                    # 组合成1个tuple list
-                    id_soft=zip(id,soft)
-                    # 遍历ONU版本信息表
-                    for i,s in id_soft:
-                        # 遍历规则待升级版本
-                        for ov in oldver:
-                            # 记录待升级的ONU
-                            if ov in s:
-                                print('待升级的ONU',i,':',s)
-                                llid=i[len(interface)+1:]
-                                # 将x/x/x的全局ID截取成单PON口下的短ID
-                                onulist.append(llid)
-                    # 组合成待升级的ONU字串
-                    onu=interface+'/'+','.join(onulist)
-                    # 待升级列表非空
-                    if onulist:
-                        print('download slave-system-boot ftp ',r[3],r[4],r[5],r[6],'onu',onu,'commit\n')
-                    else:
-                        print('ONU无需升级')
-        logging.info('%s ISCOM58EB升级完成',self.ip)
-
-def onu_upgrade(ip, telnetuser,telnetpw,rule):
-    # 定义执行升级函数，需要传入参数为设备ip，telnet帐号密码，规则列表矩阵
-    # 尝试发起telnet连接
-    t01 = datetime.now()
-    try:
-        tn = telnetlib.Telnet(ip.encode(), port=23, timeout=3)
-        # 登陆交互
-        tn.write(b'\n')
-        tn.read_until(b'Login:')
-        tn.write(telnetuser.encode()+b'\n')
-        tn.read_until(b'Password:')
-        tn.write(telnetpw.encode()+b'\n')
-        tn.read_until(b'>')
-        tn.write('enable\n'.encode())
-        tn.read_until(b'Password:')
-        tn.write('raisecom\n'.encode())
-        tn.read_until(b'#')
-        # 读取OLT版本
-        tn.write('show version\n'.encode())
-        oltinfo= tn.read_until(b"#").decode()
-        oltdict={'Product Name: ISCOM5800E-SMCB':"ISCOM58EB"}
-        # 读取ONU版本
-        tn.write('show version onu slot 1-13\n'.encode())
-        # 解码成Unicode格式以供比对
-        devinfo = tn.read_until(b'#').decode()
-        # print(devinfo)
-        # 逐行比对升级规则
-        for r in rule:
-            ftp_host = r[9]
-            ftp_user = r[10]
-            ftp_pw = r[11]
-            if devinfo.find('Product Name: %s' % r[0]) >= 0 and devinfo.find('Hardware Version: %s' % r[1]) >= 0:
-                # 匹配设备型号和硬件版本成功
-                devtype = r[0] + ':' + r[1]
-                print(ip, '升级的设备类型是', devtype)
-                # print(devinfo.find(r[3]))
-                if devinfo.find(r[3]) >= 0:
-                    print(ip, '恭喜，设备system版本已经是最新，无需升级')
-                    return '%s,成功,无需升级\n' % ip
-                # 下载升级包
-                try:
-                    # 记录开始时间
-                    t0 = datetime.now()
-                    # 备份startup配置
-                    if r[8] == 'yes':
-                        cmd_line = 'write\n'
-                        print('[', t0, ']', ip, devtype, '执行', cmd_line)
-                        tn.write(cmd_line.encode())
-                        tn.read_until(b'#')
-                        ft0 = t0.strftime('%Y%m%d_%H%M%S')
-                        cmd_line = 'upload startup-config ftp %s %s %s %s-%s.conf\n' % (
-                            ftp_host, ftp_user, ftp_pw, ip, ft0)
-                        print('[', datetime.now(), ']', ip, devtype, '执行', cmd_line)
-                        tn.write(cmd_line.encode())
-                        flag = tn.read_until(b'#').decode().find(' success')
-                        # 备份不成功则报错退出，成功则继续
-                        if flag < 0:
-                            # 确认telnet会话是否存活
-                            try:
-                                tn.close()
-                                print('[', datetime.now(), ']', '%s,失败,备份startup-config失败' % ip)
-                                return '%s,失败,备份startup-config失败\n' % ip
-                            except:
-                                print('[', datetime.now(), ']', '%s,失败,备份startup-config过程中telnet连接中断' % ip)
-                                return '%s,失败,telnet连接中断\n' % ip
-                        print('[', datetime.now(), ']', ip, devtype, '备份startup-config成功')
-                    # 清理前次升级失败冗余的镜像文件
-                    if r[6] != '':
-                        tn.write('dir\n'.encode())  # 显示flash文件列表
-                        flag = tn.read_until(b'#').decode().find(r[6])
-                        # print(flag)
-                        if flag >= 0:
-                            t60 = datetime.now()
-                            cmd_line = 'erase flash/core/%s\n' % r[6]
-                            print('[', t60, ']', ip, devtype, '执行', cmd_line)
-                            tn.write(cmd_line.encode())
-                            tmp = tn.read_until(b"Please input 'yes' to confirm:").decode()
-                            # print(tmp)
-                            cmd_line1 = 'yes\n'
-                            tn.write(cmd_line1.encode())
-                            # print(cmd_line1)
-                            result = tn.read_until(b'#', timeout=600).decode()
-                            print(result.find(' success'))
-                            t61 = datetime.now()
-                            if result.find(' success') >= 0:
-                                print('[', t61, ']', ip, devtype, cmd_line, '执行成功，耗时：', t61 - t60)
-                            else:
-                                print('[', t61, ']', ip, devtype, cmd_line, '执行失败，耗时：', t61 - t60)
-                                # return  '%s,失败,%s出错\n' % ip %cmd_line
-                                # 此处失败不影响后续操作
-                    # 下面开始判断升级bootrom
-                    t2 = datetime.now()
-                    if r[2] != '' and devinfo.find('Bootrom Version: %s' % r[2]) < 0:
-                        cmd_line = 'download bootstrap ftp %s %s %s %s\n' % (ftp_host, ftp_user, ftp_pw, r[4])
-                        print('[', t2, ']', ip, devtype, '执行', cmd_line)
-                        tn.write(cmd_line.encode())
-                        result1 = tn.read_until(b'#', timeout=180).decode()  # 获取bootrom升级结果
-                        # print(result1)
-                        t3 = datetime.now()
-                        if result1.find(' success') >= 0:
-                            print('[', t3, ']', ip, devtype, 'BOOTROM下载成功，共耗时 ', t3 - t2)
-                        # bootrom升级失败则报错退出
-                        else:
-                            # 判断telnet会话存活
-                            try:
-                                tn.close()
-                                print('[', t3, ']', ip, devtype, 'BOOTROM升级异常或超时，共耗时 ', t3 - t2)
-                                return '%s,失败,下载bootrom出错\n' % ip
-                            except:
-                                print('[', datetime.now(), ']', '%s,失败,bootrom升级过程中telnet连接中断' % ip)
-                                return '%s,失败,telnet连接中断\n' % ip
-                    # 下面开始升级system
-                    tn.write('dir\n'.encode())
-                    dirlist = tn.read_until(b'#').decode()
-                    flag = dirlist.find(r[5])  # 判断是否有已存在的文件，为后面二次确认做准备
-                    # print(flag)
-                    cmd_line = 'download system ftp %s %s %s %s\n' % (ftp_host, ftp_user, ftp_pw, r[5])
-                    t4 = datetime.now()
-                    print('[', t4, ']', ip, devtype, 'bootrom版本满足，开始执行', cmd_line)
-                    tn.write(cmd_line.encode())
-                    # 如果已经有存在的文件，确认覆盖升级
-                    if flag >= 0:
-                        sleep(3)
-                        tn.write('yes\n'.encode())  # 等待3秒后输入yes二次确认
-                    # 获取命令结果
-                    result1 = tn.read_until(b'#', timeout=2700).decode()
-                    # print(result1)
-                    t5 = datetime.now()
-                    # 判断返回，如果含有download system success，则成功，超时抛出失败
-                    if result1.find(' success') >= 0:  # 注意success前有空格，以便区分unsuccessful和successful
-                        # 指定启动文件
-                        cmd_line = 'boot next-startup %s \n' % r[5]
-                        print('[', t5, ']', ip, devtype, 'system下载成功，耗时', t5 - t4, '，正在执行', cmd_line)
-                        tn.write(cmd_line.encode())
-                        result3 = tn.read_until(b'#', timeout=300).decode()
-                        t6 = datetime.now()
-                        # 判断boot next-startup是否成功
-                        if result3.find(' success') >= 0:
-                            print('[', t6, ']', ip, devtype, cmd_line, '执行成功，耗时', t6 - t5)
-                            # 判断是否需要擦除旧的镜像文件
-                            if r[7] != '':
-                                # 将r[7]单元格所列文件名按分隔符/切片
-                                eraselist = r[7].split('/')
-                                # 迭代比较列表中文件名
-                                for e in eraselist:
-                                    # 假如存在该文件名则擦除
-                                    if dirlist.find(e) >= 0:
-                                        t6 = datetime.now()
-                                        cmd_line = 'erase flash/core/%s\n' % e
-                                        print('[', t6, ']', ip, devtype, '执行', cmd_line)
-                                        tn.write(cmd_line.encode())
-                                        sleep(2)
-                                        cmd_line2 = 'yes\n'
-                                        tn.write(cmd_line2.encode())
-                                        # print(cmd_line)
-                                        tmp = tn.read_until(b'#').decode()
-                                        # print(tmp)
-                                        t7 = datetime.now()
-                                        # 此处擦除成功与否不影响升级结果
-                                        if tmp.find(' success') >= 0:
-                                            print('[', t7, ']', ip, devtype, '执行', cmd_line, '成功，耗时：', t7 - t6)
-                                        else:
-                                            print('[', t7, ']', ip, devtype, '执行', cmd_line, '失败，耗时：', t7 - t6)
-                            # 判断是否需要重启激活，只有填写yes才重启，其他值均不重启。注意r[12]作为行尾带有换行符'\n'
-                            if r[12].find('yes') >= 0:
-                                cmd_line = 'write\n'
-                                tn.write(cmd_line.encode())
-                                tn.read_until(b'#')
-                                cmd_line = 'reboot now\n'
-                                print('[', datetime.now(), ']', ip, devtype, '执行', cmd_line)
-                                tn.write(cmd_line.encode())
-                                return '%s,成功,升级systemboot成功，并重启激活\n' % ip
-                            # 如果不需要重启激活
-                            else:
-                                # 判断telnet会话存活
-                                try:
-                                    tn.close()
-                                    print('[', t6, ']', ip, devtype, '等待重启激活')
-                                    return '%s,成功,升级systemboot成功，等待重启激活\n' % ip
-                                except:
-                                    print('[', datetime.now(), ']', '%s,失败,指定启动文件过程中telnet连接中断' % ip)
-                                    return '%s,失败,telnet连接中断\n' % ip
-                        # boot next-startup执行错误处理
-                        else:
-                            # 判断telnet会话存活
-                            try:
-                                tn.close()
-                                print('[', t6, ']', ip, devtype, '执行', cmd_line, '失败，耗时', t6 - t5)
-                                return '%s,失败,指定boot next-startup文件失败\n' % ip
-                            except:
-                                print('[', datetime.now(), ']', '%s,失败,指定启动文件过程中telnet连接中断' % ip)
-                                return '%s,失败,telnet连接中断\n' % ip
-                    # 如果system下载失败
-                    else:
-                        try:
-                            # 确认telnet会话是否存活
-                            tn.close()
-                            print('[', t5, ']', ip, devtype, cmd_line, '执行异常或超时，耗时 ', t5 - t4)
-                            return '%s,失败,下载system出错\n' % ip
-                        except:
-                            print('[', t5, ']', ip, devtype, '升级system过程telnet连接中断，耗时 ', t5 - t4)
-                            return '%s,失败,telnet连接中断\n' % ip
-                # 升级过程异常处理
-                except:
-                    t8 = datetime.now()
-                    try:
-                        # 确认telnet会话是否存活
-                        tn.close()
-                        print('[', t8, ']', ip, devtype, '升级异常，其他未知原因，共耗时 ', t8 - t0)
-                        return '%s,失败,其他未知原因\n' % ip
-                    except:
-                        print('[', t8, ']', ip, devtype, '升级异常，telnet连接中断，共耗时 ', t8 - t0)
-                        return '%s,失败,telnet连接中断\n' % ip
-        # 遍历规则无匹配的处理
-        t91 = datetime.now()
         try:
-            # 确认telnet会话是否存活
-            tn.close()
-            print('%s，失败，不支持的设备类型' % ip)
-            return '%s,失败,不支持的设备类型\n' % ip
+            # 遍历规则列表
+            for r in self.rule:
+                # 将r[1]单元格所列版本号按分隔符/切片
+                oldver = r[1].split('/')
+                logging.debug(oldver)
+                # 遍历槽位
+                slots = list(range(1,14))
+                del slots[6:8] #去掉主控板槽位
+                for slot in slots:
+                    # 遍历PON口
+                    for port in range(1,5):
+                        interface=str(slot)+'/'+str(port)
+                        logging.debug(interface)
+                        onulist = []
+                        #读空缓存区
+                        self.tn.read_very_eager()
+                        cmd = 'show version onu olt %s\n'%interface
+                        self.tn.write(cmd.encode())
+                        # 读取ONU版本信息
+                        onu_info=self.tn.read_until(b'#',timeout=5).decode("utf8","ignore")
+                        logging.debug(onu_info)
+                        # 正则表达式提取ONU ID
+                        oid=re.findall('ONU ID: (\S*)',onu_info)
+                        # 版本列表
+                        soft=re.findall('Software Version: (\S*)',onu_info)
+                        # 组合成1个tuple list
+                        oid_soft=zip(oid,soft)
+                        # 遍历ONU版本信息表
+                        for i,s in oid_soft:
+                            # 遍历规则待升级版本
+                            for ov in oldver:
+                                # 记录待升级的ONU
+                                if ov in s:
+                                    logging.info('%s 待升级的ONU %s : %s',self.ip,i,s)
+                                    # 将x/x/x的全局ID截取成单PON口下的短ID
+                                    llid = i[len(interface) + 1:]
+                                    onulist.append(llid)
+                        # 组合成待升级的ONU字串
+                        onu=interface+'/'+','.join(onulist)
+                        # 待升级列表非空
+                        if onulist:
+                            cmd='download slave-system-boot ftp %s %s %s %s onu %s commit\n' %(r[3],r[4],r[5],r[6],onu)
+                            logging.info(cmd)
+                            self.tn.read_very_eager()
+                            # 开始download
+                            self.tn.write(cmd.encode())
+                            #此处返回可能有非UTF8字符，需做容错处理
+                            res1=self.tn.read_until(b'[yes/no]: ',timeout=2).decode("utf8","ignore")
+                            logging.debug(res1)
+                            if '[yes/no]:' in res1:
+                                self.tn.write('no\n'.encode())
+                            res2 = self.tn.read_until(b'#',timeout=900).decode("utf8","ignore")
+                            result=res1+res2
+                            logging.info('%s interface olt %s download result :\n%s',self.ip,interface,result)
+                            # 重启onu
+                            cmd='reboot onu %s now\n' % onu
+                            # self.tn.write(cmd.encode())
+                            logging.info('%s '+cmd,self.ip)
+                        else:
+                            logging.info('%s %s : ONU无需升级',self.ip,interface)
+            logging.info('%s ISCOM58EB升级完成',self.ip)
         except:
-            print('[', t91, ']', ip, '比对型号版本过程异常，telnet连接中断，共耗时 ', t91 - t01)
-            return '%s,失败,telnet连接中断\n' % ip
-    # telnet异常错误处理
-    except:
-        print('%s telnet连接失败，非RC设备或设备离线' % ip)
-        return '%s,失败,非RC设备或设备离线\n' % ip
-
+            logging.info('%s ISCOM58EB升级异常', self.ip)
 
 def multiprocess_upgrade(p_num):
     # 获取当前工作目录
