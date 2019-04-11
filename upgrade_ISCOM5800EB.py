@@ -20,13 +20,26 @@ from datetime import datetime
 from multiprocessing import Pool, freeze_support
 from time import sleep
 
+logger = logging.getLogger()  # 定义对应的程序模块名name，默认是root
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()  # 日志输出到屏幕控制台
+ch.setLevel(logging.INFO)  # 设置日志等级
+home = os.getcwd()
+log_filename = os.path.join(home, 'result_%s.log' % datetime.now().strftime('%Y%m%d_%H%M%S'))
+# log_filename='d:/result_%s.log' %datetime.now().strftime('%Y%m%d_%H%M%S')
+fh = logging.FileHandler(log_filename)  # 向文件输出日志信息
+fh.setLevel(logging.INFO)  # 设置输出到文件最低日志级别
+formatter = logging.Formatter("%(asctime)s - PID:%(process)d - %(message)s", '%Y-%m-%d %H:%M:%S')  # 定义日志输出格式
+# 指定输出格式
+ch.setFormatter(formatter)
+fh.setFormatter(formatter)
+# 增加指定的handler
+logger.addHandler(ch)
+logger.addHandler(fh)
 
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
-logging.basicConfig(level=logging.INFO,format=LOG_FORMAT,datefmt=DATE_FORMAT)
 
 class olt():
-    def __init__(self, ip, telnetuser, telnetpw,rule):
+    def __init__(self, ip, telnetuser, telnetpw, rule):
         self.ip = ip
         self.telnetuser = telnetuser
         self.telnetpw = telnetpw
@@ -37,15 +50,15 @@ class olt():
             self.tn = telnetlib.Telnet(self.ip.encode(), port=23, timeout=3)
             # 登陆交互
             self.tn.write(b'\n')
-            self.tn.read_until(b'Login:',timeout=2)
+            self.tn.read_until(b'Login:', timeout=2)
             self.tn.write(self.telnetuser.encode() + b'\n')
-            self.tn.read_until(b'Password:',timeout=2)
+            self.tn.read_until(b'Password:', timeout=2)
             self.tn.write(self.telnetpw.encode() + b'\n')
-            self.tn.read_until(b'>',timeout=2)
+            self.tn.read_until(b'>', timeout=2)
             self.tn.write('enable\n'.encode())
-            self.tn.read_until(b'Password:',timeout=2)
+            self.tn.read_until(b'Password:', timeout=2)
             self.tn.write('raisecom\n'.encode())
-            if '#' in self.tn.read_until(b'#',timeout=2).decode():
+            if '#' in self.tn.read_until(b'#', timeout=2).decode("utf8", "ignore"):
                 self.login_flag = True
             else:
                 self.login_flag = False
@@ -56,29 +69,29 @@ class olt():
     def logout(self):
         try:
             self.tn.close()
-            logging.info('logout from %s successfully',self.ip)
+            logging.info('logout from %s successfully', self.ip)
         except:
-            logging.warning('logout from %s error',self.ip)
+            logging.warning('logout from %s error', self.ip)
 
     # 检查OLT型号
     def check_type(self):
         if self.login_flag:
             try:
-                #关闭日志打印以防干扰
+                # 关闭日志打印以防干扰
                 self.tn.write('config\n'.encode())
                 self.tn.read_until(b"#", timeout=2)
-                self.tn.write('logging monitor disable\n'.encode())
+                self.tn.write('no logging monitor\n'.encode())
                 self.tn.read_until(b"#", timeout=2)
                 self.tn.write('end\n'.encode())
                 self.tn.read_until(b"#", timeout=2)
                 # 读取OLT版本
                 self.tn.write('show version\n'.encode())
-                oltinfo = self.tn.read_until(b"#",timeout=2).decode()
+                oltinfo = self.tn.read_until(b"#", timeout=2).decode("utf8", "ignore")
                 if 'ISCOM5800E-SMCB' in oltinfo:
                     self.type = 'ISCOM58EB'
                 else:
                     self.type = 'other'
-                logging.debug('%s OLT type is %s',self.ip, self.type)
+                logging.debug('%s OLT type is %s', self.ip, self.type)
             except:
                 logging.warning('check OLT type error')
                 self.type = 'error'
@@ -95,7 +108,7 @@ class olt():
 
     # 58EB单进程升级
     def ISCOM58EB_upgrade_onu(self):
-        logging.info('%s ISCOM58EB升级开始',self.ip)
+        logging.info('%s ISCOM58EB升级开始', self.ip)
         try:
             # 遍历规则列表
             for r in self.rule:
@@ -103,63 +116,61 @@ class olt():
                 oldver = r[1].split('/')
                 logging.debug(oldver)
                 # 遍历槽位
-                slots = list(range(1,14))
-                del slots[6:8] #去掉主控板槽位
+                slots = list(range(1, 14))
+                del slots[6:8]  # 去掉主控板槽位
                 for slot in slots:
                     # 遍历PON口
-                    for port in range(1,5):
-                        interface=str(slot)+'/'+str(port)
+                    for port in range(1, 5):
+                        interface = str(slot) + '/' + str(port)
                         logging.debug(interface)
                         onulist = []
-                        #读空缓存区
+                        # 读空缓存区
                         self.tn.read_very_eager()
-                        cmd = 'show version onu olt %s\n'%interface
+                        cmd = 'show version onu olt %s\n' % interface
                         self.tn.write(cmd.encode())
                         # 读取ONU版本信息
-                        onu_info=self.tn.read_until(b'#',timeout=5).decode("utf8","ignore")
+                        onu_info = self.tn.read_until(b'#', timeout=2).decode("utf8", "ignore")
                         logging.debug(onu_info)
                         # 正则表达式提取ONU ID
-                        oid=re.findall('ONU ID: (\S*)',onu_info)
+                        oid = re.findall('ONU ID: (\S*)', onu_info)
                         # 版本列表
-                        soft=re.findall('Software Version: (\S*)',onu_info)
+                        soft = re.findall('Software Version: (\S*)', onu_info)
                         # 组合成1个tuple list
-                        oid_soft=zip(oid,soft)
+                        oid_soft = zip(oid, soft)
                         # 遍历ONU版本信息表
-                        for i,s in oid_soft:
+                        for i, s in oid_soft:
                             # 遍历规则待升级版本
                             for ov in oldver:
                                 # 记录待升级的ONU
                                 if ov in s:
-                                    logging.info('%s 待升级的ONU %s : %s',self.ip,i,s)
+                                    logging.info('%s 待升级的ONU %s : %s', self.ip, i, s)
                                     # 将x/x/x的全局ID截取成单PON口下的短ID
                                     llid = i[len(interface) + 1:]
                                     onulist.append(llid)
                         # 组合成待升级的ONU字串
-                        onu=interface+'/'+','.join(onulist)
+                        onu = interface + '/' + ','.join(onulist)
                         # 待升级列表非空
                         if onulist:
-                            cmd='download slave-system-boot ftp %s %s %s %s onu %s commit\n' %(r[3],r[4],r[5],r[6],onu)
-                            logging.info(cmd)
-                            self.tn.read_very_eager()
+                            cmd = 'download slave-system-boot ftp %s %s %s %s onu %s commit\n' % (
+                                r[3], r[4], r[5], r[6], onu)
+                            logging.info('%s ' + cmd, self.ip)
+                            logging.debug(self.tn.read_very_eager().decode('utf8', 'ignore'))
                             # 开始download
                             self.tn.write(cmd.encode())
-                            #此处返回可能有非UTF8字符，需做容错处理
-                            res1=self.tn.read_until(b'[yes/no]: ',timeout=2).decode("utf8","ignore")
-                            logging.debug(res1)
-                            if '[yes/no]:' in res1:
-                                self.tn.write('no\n'.encode())
-                            res2 = self.tn.read_until(b'#',timeout=900).decode("utf8","ignore")
-                            result=res1+res2
-                            logging.info('%s interface olt %s download result :\n%s',self.ip,interface,result)
+                            sleep(3)
+                            self.tn.write('yes\n'.encode())
+                            result = self.tn.read_until(b'#', timeout=590).decode("utf8", "ignore")
+                            logging.info('%s interface olt %s download result :\n%s', self.ip, interface, result)
                             # 重启onu
-                            cmd='reboot onu %s now\n' % onu
-                            # self.tn.write(cmd.encode())
-                            logging.info('%s '+cmd,self.ip)
+                            cmd = 'reboot onu %s now\n' % onu
+                            self.tn.write(cmd.encode())
+                            logging.info('%s ' + cmd, self.ip)
                         else:
-                            logging.info('%s %s : ONU无需升级',self.ip,interface)
-            logging.info('%s ISCOM58EB升级完成',self.ip)
+                            logging.info('%s %s : ONU无需升级', self.ip, interface)
+            logging.info('%s ISCOM58EB升级完成', self.ip)
         except:
             logging.info('%s ISCOM58EB升级异常', self.ip)
+
 
 def multiprocess_upgrade(p_num):
     # 获取当前工作目录
@@ -202,20 +213,6 @@ def multiprocess_upgrade(p_num):
     # ip列表文件读取错误处理
     except:
         print('错误，设备列表文件名%s不存在或路径不对' % f2)
-        exit()
-
-    # 结果日志保存目录，如没有，则创建
-    f3 = os.path.join(home, 'result')
-    if not os.path.exists(f3):
-        os.makedirs(f3)
-    start_time = datetime.now()
-    # 结果日志存放路径，文件名为格式化日期_时间.csv
-    logfile = os.path.join(f3, '%s.csv') % start_time.strftime('%Y%m%d_%H%M%S')
-    try:
-        log = open(logfile, mode='a')
-    # 日志文件操作错误处理
-    except:
-        print('错误，结果日志文件存放路径/result不存在')
         exit()
 
     # 创建进程池，个数根据PC处理能力适当选择
