@@ -2,7 +2,7 @@
     - ONU批量升级工具v1.0说明
     - 编写人：莫凡 500264@qq.com
     - 本软件遵循GPL开源协议
-    - 版本日期：20190412
+    - 版本日期：20190415
     - 说明：
     1. 本程序用于OLT远程批量升级ONU，支持PON口下不同ONU混用，程序会根据不同类型ONU自动搜索匹配升级规则
     2. 目前只支持iscom5800EB OLT，程序以PON口为单位升级，如果匹配不到规则，继续匹配下一个PON口
@@ -23,6 +23,8 @@ from telnetlib import Telnet  # 调用telnet方法需要的库
 from datetime import datetime
 from multiprocessing import Pool, freeze_support
 from time import sleep
+# 用第三方库解决多进程读写日志文件安全问题
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 # 日志模块初始化
 logger = logging.getLogger()  # 定义对应的程序模块名name，默认是root
@@ -31,9 +33,9 @@ ch = logging.StreamHandler()  # 日志输出到屏幕控制台
 ch.setLevel(logging.INFO)  # 设置日志等级
 home = os.getcwd()
 log_filename = os.path.join(home, 'result_%s.log' % datetime.now().strftime('%Y%m%d_%H%M'))
-fh = logging.FileHandler(log_filename, encoding='utf-8')  # 向文件输出日志信息
+fh = ConcurrentRotatingFileHandler(log_filename, encoding='utf-8')  # 向文件输出日志信息
 fh.setLevel(logging.INFO)  # 设置输出到文件最低日志级别
-formatter = logging.Formatter("%(asctime)s - %(message)s", '%Y-%m-%d %H:%M:%S')  # 定义日志输出格式
+formatter = logging.Formatter("%(asctime)s - %(message)s\r\n", '%Y-%m-%d %H:%M:%S')  # 定义日志输出格式
 # 指定输出格式
 ch.setFormatter(formatter)
 fh.setFormatter(formatter)
@@ -253,7 +255,7 @@ if __name__ == '__main__':
     - ONU批量升级工具v1.0说明
     - 编写人：莫凡 500264@qq.com
     - 本软件遵循GPL开源协议
-    - 版本日期：20190412
+    - 版本日期：20190415
     - 说明：
     1. 本程序用于OLT远程批量升级ONU，支持PON口下不同ONU混用，程序会根据不同类型ONU自动搜索匹配升级规则
     2. 目前只支持iscom5800EB OLT，程序以PON口为单位升级，如果匹配不到规则，继续匹配下一个PON口
