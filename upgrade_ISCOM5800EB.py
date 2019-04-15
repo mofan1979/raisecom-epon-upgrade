@@ -31,7 +31,7 @@ ch = logging.StreamHandler()  # 日志输出到屏幕控制台
 ch.setLevel(logging.INFO)  # 设置日志等级
 home = os.getcwd()
 log_filename = os.path.join(home, 'result_%s.log' % datetime.now().strftime('%Y%m%d_%H%M'))
-fh = logging.FileHandler(log_filename, encoding='UTF-8')  # 向文件输出日志信息
+fh = logging.FileHandler(log_filename, encoding='utf-8')  # 向文件输出日志信息
 fh.setLevel(logging.INFO)  # 设置输出到文件最低日志级别
 formatter = logging.Formatter("%(asctime)s - %(message)s", '%Y-%m-%d %H:%M:%S')  # 定义日志输出格式
 # 指定输出格式
@@ -206,11 +206,17 @@ def multiprocess_upgrade(p_num):
     # 生成ip列表文件路径
     f2 = os.path.join(cwd, 'olt_list.csv')
     # 尝试读取olt列表文件，放入二维矩阵ip_list[]。
-    ip_list = []
+
     try:
         with open(f2, mode='r') as f:
+            temp = []
             for line in f:
-                ip_list.append(line.split(','))
+                # 去重处理
+                if line not in temp:
+                    temp.append(line)
+        ip_list = []
+        for item in temp:
+            ip_list.append(item.split(','))
     # ip列表文件读取错误处理
     except:
         logging.error('错误，设备列表文件%s不存在或路径不对' % f2)
@@ -267,7 +273,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # 命令行加-p选项，无人值守静默升级
     if args.p_num is not None:
-        print("进行无人值守静默升级，并发进程数为：", args.p_num)
+        logging.info("进行无人值守静默升级，并发进程数为：%s" % args.p_num)
         multiprocess_upgrade(args.p_num)
     # 如果命令行不加-p选项，进行交互式升级
     else:
@@ -277,5 +283,6 @@ if __name__ == '__main__':
             if 0 < p_unm < 100:
                 break
             print("非法数值，请从新输入1到99之间的整数")
+        logging.info('批量升级开始，并发进程数为：%s' % p_unm)
         multiprocess_upgrade(p_unm)
         input('升级完成，升级结果日志放在本目录下，文件名为“result_日期_时间.csv”，按回车退出')
