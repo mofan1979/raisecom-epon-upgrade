@@ -12,4 +12,4 @@
     7. 程序为多进程并行升级，需根据PC性能配置决定并发进程数，数量过多会影响稳定性，ftp服务端程序需要支持高并发下载，推荐使用FileZilla server服务器程序。
     8. 命令行使用“upgrade_ISCOM5800EB.exe -p P_NUM”可实现无人值守静默升级，P_NUM为并发进程数，P_NUM必须大于等于1小于等于99。
     9. 搭配操作系统计划任务使用可实现周期自动升级。
-    10. 如果windows环境运行提示缺少API-MS-Win-Core-Console-L1-1-0.dll运行库，请下载安装[微软常用运行库合集]（http://baoku.360.cn/soft/show/appid/104698064）
+    10. 如果windows环境运行提示缺少API-MS-Win-Core-Console-L1-1-0.dll运行库，请下载安装[微软常用运行库合集](http://baoku.360.cn/soft/show/appid/104698064)
