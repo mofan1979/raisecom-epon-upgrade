@@ -156,7 +156,7 @@ class HutongOlt(Olt):
                 self.tn.write('end\n'.encode())
                 self.tn.read_until(b'#', timeout=1)
                 self.tn.write('write\n'.encode())
-                if ' success' not in self.tn.read_until(b'#', timeout=20).decode('utf8', 'ignore'):
+                if ' success' not in self.tn.read_until(b'#', timeout=30).decode('utf8', 'ignore'):
                     logging.warning('%s 解耦成功，保存失败，请手动保存' % self.ip)
                     self.logout()
                     return '%s,解耦成功，保存失败，请手动保存\n' % self.ip
@@ -275,6 +275,8 @@ def batch_hutong():
         my_olt = HutongOlt(ip, telnetuser, telnetpw, debugpw)
         res = my_olt.hutong()
         log.write(res)
+        log.flush()
+    log.close()
     logging.info('批量执行完成')
 
 
