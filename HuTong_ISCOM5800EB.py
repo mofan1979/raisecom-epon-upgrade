@@ -29,6 +29,7 @@ from telnetlib import Telnet  # 调用telnet方法需要的库
 from datetime import datetime
 # 用第三方库解决多进程读写日志文件安全问题
 from concurrent_log_handler import ConcurrentRotatingFileHandler
+import socket
 
 # 日志模块初始化
 logger = logging.getLogger()  # 定义对应的程序模块名name，默认是root
@@ -77,9 +78,12 @@ class Olt:
                 logging.warning('%s login 失败，非raisecom设备或密码错误' % self.ip)
                 self.logout()
                 return '%s,login 失败，非raisecom设备或密码错误\n' % self.ip
-        except:
+        except socket.timeout:
             logging.warning('%s login 失败，设备不在线' % self.ip)
             return '%s,login 失败，设备不在线\n' % self.ip
+        except EOFError:
+            logging.warning('%s 连接断开，可能会话数已满' % (self.ip))
+            return '%s,连接断开，可能会话数已满\n' % (self.ip)
 
     def logout(self):
         try:
@@ -220,6 +224,8 @@ def batch_check():
         my_olt = Olt(ip, telnetuser, telnetpw)
         res = my_olt.check_type()
         log.write(res)
+        log.flush()
+    log.close()
     logging.info('批量执行完成')
 
 
@@ -281,5 +287,5 @@ def batch_hutong():
 
 
 if __name__ == '__main__':
-    batch_hutong()
-    # batch_check()
+    batch_check()
+    # batch_hutong()
