@@ -1,8 +1,8 @@
 """
-    - ONU批量升级工具v1.0说明
+    - ONU批量升级工具v1.1说明
     - 编写人：莫凡 500264@qq.com
     - 本软件遵循GPL开源协议
-    - 版本日期：20190415
+    - 版本日期：20190718
     - 说明：
     1. 本程序用于OLT远程批量升级ONU，支持PON口下不同ONU混用，程序会根据不同类型ONU自动搜索匹配升级规则
     2. 目前只支持iscom5800EB OLT，程序以PON口为单位升级，如果匹配不到规则，继续匹配下一个PON口
@@ -130,7 +130,8 @@ class Olt:
                         logging.debug(interface)
                         onulist = []
                         # 读空缓存区
-                        self.tn.read_very_eager()
+                        # tmp1 = self.tn.read_very_eager()
+                        tmp1 = self.tn.read_until(b"#", timeout=2)
                         cmd = 'show version onu olt %s\n' % interface
                         self.tn.write(cmd.encode())
                         # 读取ONU版本信息
@@ -152,26 +153,34 @@ class Olt:
                                     # 将x/x/x的全局ID截取成单PON口下的短ID
                                     llid = i[len(interface) + 1:]
                                     onulist.append(llid)
+                        logging.debug(interface)
                         # 组合成待升级的ONU字串
                         onu = interface + '/' + ','.join(onulist)
                         # 待升级列表非空
                         if onulist:
+                            # logging.debug(interface)
                             cmd = 'download slave-system-boot ftp %s %s %s %s onu %s commit\n' % (
                                 r[3], r[4], r[5], r[6], onu)
                             logging.info('%s ' + cmd, self.ip)
-                            res1 = self.tn.read_very_eager().decode('utf8', 'ignore')
+                            # 读空缓存区
+                            # res1 = self.tn.read_very_eager().decode('utf8', 'ignore')
+                            res1 = self.tn.read_until(b"#", timeout=1).decode('utf8', 'ignore')
                             logging.debug(res1)
                             # 开始download
                             self.tn.write(cmd.encode())
                             sleep(3)
                             self.tn.write('yes\n'.encode())
-                            res2 = self.tn.expect([b'[Ss]uccess.*', b'[Ff]ail.*', b'[Ff]inish.*'], timeout=590)
-                            result = res2[2].decode('utf8', 'ignore')
-                            logging.info('%s interface olt %s 升级结果 :\n%s', self.ip, interface, result)
+                            # res2 = self.tn.expect([b'[Ss]uccess.*', b'[Ff]ail.*', b'[Ff]inish.*'], timeout=590)
+                            res3 = self.tn.read_until(b'#', timeout=590).decode('utf8', 'ignore')
+                            # result = res2[2].decode('utf8', 'ignore')
+                            logging.info('%s interface olt %s 升级结果 :\n%s', self.ip, interface, res3)
+                            # 读空缓冲区
+                            self.tn.read_until(b'#', timeout=1)
                             # 重启onu
                             cmd = 'reboot onu %s now\n' % onu
                             self.tn.write(cmd.encode())
-                            logging.info('%s ' + cmd, self.ip)
+                            res4 = self.tn.read_until(b'#', timeout=10).decode('utf8', 'ignore')
+                            logging.info('%s %s', self.ip, res4)
                         else:
                             logging.info('%s %s : ONU无需升级', self.ip, interface)
             logging.info('%s ISCOM58EB升级完成', self.ip)
